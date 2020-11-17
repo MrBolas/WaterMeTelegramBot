@@ -17,7 +17,13 @@ mongoose.connect(`mongodb://${process.env.DB_HOST}:27017/WaterMe`, {
   console.log(`Connection to Database failed: mongodb://${process.env.DB_HOST}:27017/WaterMe`)
 });
 
+const commands = [
+  {key: "/latest",      description: "Sends latest registered data Sample for all the sensors of one MicroController"},
+  {key: "/temperature", description: "Sends latest registred Temperature for all the Temperature sensors"},
+];
+
 /* Requirements:
+*  -> Add /start Command. this is Launched in the beggining of the conversation and it is great for configuration flow
 *  -> Has a user i expect the bot to delivery on demand sensor information
 *  -> Has a user i expect the bot to send a warning when sensors reach a certain threshold  
 *  -> Has a user i expect the bot to send certain flares of personality from time to time
@@ -25,6 +31,17 @@ mongoose.connect(`mongodb://${process.env.DB_HOST}:27017/WaterMe`, {
 
 bot.on('/test', (msg) => {
     return msg.reply.text('Sanity test')
+})
+
+// Sends an command list
+bot.on('/start', (msg) => {
+  let reply_message = "Welcome to WaterMe Telegram Bot\n There are several commands available: \n";
+  for (const command of commands) {
+    reply_message += `${command.key} -> ${command.description}\n`
+  }
+
+  bot.sendMessage(msg.from.id, reply_message);
+  return;
 })
 
 // Sends latest registered data Sample for all the sensors of one MicroController
