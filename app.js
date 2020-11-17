@@ -32,6 +32,18 @@ bot.on('/temperature', (msg) => {
 
     MicroController.findOne()
     .then(controller => {
+        if (controller == null) {
+          bot.sendMessage(msg.from.id,`Something went wrong.`, { replyToMessage: msg.message_id });
+          console.log("Code 4001.");
+          return;
+        }
+        
+        if (controller.sensors == null) {
+          bot.sendMessage(msg.from.id,`Something went wrong.`, { replyToMessage: msg.message_id });
+          console.log("Code 4002.");
+          return;
+        }
+        
         for (const sensor of controller.sensors) {
             if (sensor.type.includes('temp'))
             {
