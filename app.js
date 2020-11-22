@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const TeleBot = require('telebot');
-const microController = require('./models/microController');
+const MicroController = require('@mrballs/watermesettings');
 const environment_v = require('dotenv').config()
 
 const bot = new TeleBot(process.env.BOT_API_KEY);
@@ -18,8 +18,11 @@ mongoose.connect(`mongodb://${process.env.DB_HOST}:27017/WaterMe`, {
 });
 
 const commands = [
-  {key: "/latest",      description: "Sends latest registered data Sample for all the sensors of one MicroController"},
-  {key: "/temperature", description: "Sends latest registred Temperature for all the Temperature sensors"},
+  {key: "/latest",                                description: "Sends latest registered data Sample for all the sensors of one MicroController"},
+  {key: "/temperature",                           description: "Sends latest registred Temperature for all the Temperature sensors"},
+  {key: "/humidity",                              description: "Sends latest registred Temperature for all the Humidty sensors"},
+  {key: "/SMS",                                   description: "Sends latest registred Temperature for all the Soil Moisture sensors"},
+  {key: "/history <sensor> <number of readings>", description: "Sends the last <number_of_readings> readings sensor data history for <sensor>"},
 ];
 
 /* Requirements:
@@ -29,6 +32,7 @@ const commands = [
 *  -> Has a user i expect the bot to send certain flares of personality from time to time
 */
 
+// Sanity test command
 bot.on('/test', (msg) => {
     return msg.reply.text('Sanity test')
 })
@@ -97,7 +101,7 @@ bot.on('/temperature', (msg) => {
           {
               let reading_time = Date(sensor.readings[sensor.readings.length-1].time);
               let reading_value = sensor.readings[sensor.readings.length-1].value
-              bot.sendMessage(msg.from.id,`${reading_time} : ${sensor.type} -> ${reading_value}`, { replyToMessage: msg.message_id });
+              bot.sendMessage(msg.from.id,`${reading_time} : ${sensor.type} -> ${reading_value}\nBetween the max: ${sensor.watering_threshold.max} and ${sensor.watering_threshold.min}`, { replyToMessage: msg.message_id });
           }
       }
   })
@@ -106,5 +110,110 @@ bot.on('/temperature', (msg) => {
   })
 })
 
+// Sends latest registred Temperature for all the Humidity sensors
+bot.on('/humidity', (msg) => {
+  MicroController.findOne()
+  .then(controller => {
+      if (controller == null) {
+        bot.sendMessage(msg.from.id,`Something went wrong.`, { replyToMessage: msg.message_id });
+        console.log("Code 4001.");
+        return;
+      }
+      
+      if (controller.sensors == null) {
+        bot.sendMessage(msg.from.id,`Something went wrong.`, { replyToMessage: msg.message_id });
+        console.log("Code 4002.");
+        return;
+      }
+      
+      for (const sensor of controller.sensors) {
+          if (sensor.type.includes('DHT'))
+          {
+              let reading_time = Date(sensor.readings[sensor.readings.length-1].time);
+              let reading_value = sensor.readings[sensor.readings.length-1].value
+              bot.sendMessage(msg.from.id,`${reading_time} : ${sensor.type} -> ${reading_value}\nBetween the max: ${sensor.watering_threshold.max} and ${sensor.watering_threshold.min}`, { replyToMessage: msg.message_id });
+          }
+      }
+  })
+  .catch(err => {
+      console.log(err);
+  })
+})
+
+// Sends latest registred Temperature for all the Soil Moisture Sensors
+bot.on('/SMS', (msg) => {
+  MicroController.findOne()
+  .then(controller => {
+      if (controller == null) {
+        bot.sendMessage(msg.from.id,`Something went wrong.`, { replyToMessage: msg.message_id });
+        console.log("Code 4001.");
+        return;
+      }
+      
+      if (controller.sensors == null) {
+        bot.sendMessage(msg.from.id,`Something went wrong.`, { replyToMessage: msg.message_id });
+        console.log("Code 4002.");
+        return;
+      }
+      
+      for (const sensor of controller.sensors) {
+          if (sensor.type.includes('SMS'))
+          {
+              let reading_time = Date(sensor.readings[sensor.readings.length-1].time);
+              let reading_value = sensor.readings[sensor.readings.length-1].value
+              bot.sendMessage(msg.from.id,`${reading_time} : ${sensor.type} -> ${reading_value}\nBetween the max: ${sensor.watering_threshold.max} and ${sensor.watering_threshold.min}`, { replyToMessage: msg.message_id });
+          }
+      }
+  })
+  .catch(err => {
+      console.log(err);
+  })
+})
+
+// Sends readings history from the selected sensor
+bot.on('/history', (msg) => {
+  let req_sensor = msg.text.split(' ')[1];
+  let number_of_samples = msg.text.split(' ')[2];
+  let requested_readings = [];
+  let message = 'No readings available.';
+
+  MicroController.findOne()
+  .then(controller => {
+    if (controller == null) {
+      bot.sendMessage(msg.from.id,`Something went wrong.`, { replyToMessage: msg.message_id });
+      console.log("Code 4001.");
+      return;
+    }
+    
+    if (controller.sensors == null) {
+      bot.sendMessage(msg.from.id,`Something went wrong.`, { replyToMessage: msg.message_id });
+      console.log("Code 4002.");
+      return;
+    }
+    
+    //Search for readings
+    for (const sensor of controller.sensors) {
+      if (sensor.type.includes(req_sensor))
+      {
+        let readings_size = sensor.readings.length;
+        for (let index = readings_size; index > array.length-number_of_samples; index--) {
+          requested_readings.push(sensor.readings[index]);             
+        }
+      }
+    }
+    
+    //Compile Message
+    if (requested_readings.length > 0) {
+      message = `Readings Requested for ${req_sensor}:\n`;
+      for (const reading of requested_readings) {
+        message += `${reading.value}\n`
+      }
+    }
+    bot.sendMessage(msg.from.id,message);  
+  })
+  .catch(err => {
+      console.log(err);
+  })
+})
 
 bot.start();

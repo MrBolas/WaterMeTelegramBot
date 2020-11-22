@@ -10,6 +10,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@mrballs/watermesettings": "file:../WaterMeSettings",
     "dotenv": "^8.2.0",
     "mongoose": "^5.10.14",
     "telebot": "^1.4.1"
