@@ -2,9 +2,8 @@ const mongoose = require('mongoose');
 const TeleBot = require('telebot');
 const MicroController = require('@mrballs/watermesettings');
 const environment_v = require('dotenv').config()
-
 const bot = new TeleBot(process.env.BOT_API_KEY);
-const MicroController = require('./models/microController');
+
 
 mongoose.connect(`mongodb://${process.env.DB_HOST}:27017/WaterMe`, {
   useNewUrlParser: true,
