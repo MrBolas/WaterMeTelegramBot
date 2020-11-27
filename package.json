@@ -10,9 +10,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@mrballs/watermesettings": "^1.0.6",
+    "@mrballs/watermesettings": "^1.0.7",
     "dotenv": "^8.2.0",
-    "mongoose": "^5.10.15",
+    "mongoose": "^5.10.16",
+    "node-cron": "^2.0.3",
     "telebot": "^1.4.1"
   }
 }

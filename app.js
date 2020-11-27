@@ -3,9 +3,10 @@ const TeleBot = require('telebot');
 const WaterMeSettings = require('@mrballs/watermesettings');
 const MicroController = WaterMeSettings.MicroController;
 const User = WaterMeSettings.User;
+const cron = require('node-cron');
+const WaterMeEngine = require('@mrballs/watermesettings/WaterMeEngine/WaterMeEngine');
 const environment_v = require('dotenv').config()
 const bot = new TeleBot(process.env.BOT_API_KEY);
-
 
 mongoose.connect(`mongodb://${process.env.DB_HOST}:27017/WaterMe`, {
   useNewUrlParser: true,
@@ -18,10 +19,55 @@ mongoose.connect(`mongodb://${process.env.DB_HOST}:27017/WaterMe`, {
   console.log(`Connection to Database failed: mongodb://${process.env.DB_HOST}:27017/WaterMe`)
 });
 
+//scheduled evaluations
+
+const watering_time_interval = 10; //minutes
+
+cron.schedule(`*/${watering_time_interval} * * * *`, () => {
+  // run schedule evaluation for controllers
+  scheduled_evaluation();
+});
+
+/**
+ * @function scheduled_evaluation
+ * @description Goes through all the microcontrollers and evaluates the sensor conditions to water the plants.
+ * On a first stage this function sends a telegram message to the subscribed users.
+ */
+function scheduled_evaluation() {
+
+  MicroController.find()
+  .then( all_controllers => {
+
+    for (const controller of all_controllers) {
+      let waterme_engine = new WaterMeEngine(controller.sensors, controller.location);
+
+      controller.populate('User').execPopulate()
+      .then( populated_controller => {
+        for (const user of populated_controller.users) {
+          if (waterme_engine.evaluateWaterMe()) {
+            let message = `Time to water the plants`;
+            console.log(`Watering message sent to ${user.telegram.first_name} about ${populated_controller.mac_address}`);
+            bot.sendMessage(user.telegram.user_id, message);
+          }
+        }
+      })
+      .catch(err => {
+        console.log(err)
+      })
+    }
+  })
+  .catch(err => {
+    console.log(err)
+  })
+};
+
+
+//bot commands
+
 const commands = [
-  {key: "/start",                                 description: "Sends a list of available commands and creates an account for the Telegram User in the WaterMe"},
-  {key: "/subscribe <controller id>",             description: "Subscribes controller with <controller id> to user. <controller id> is the controller Mac Address"},
-  {key: "/myuser",                                description: "Sends user information to the chat"},
+  {key: "/start",                                 description: "Sends a list of available commands and creates an account for the Telegram User in the WaterMe"},               //User dependent
+  {key: "/subscribe <controller id>",             description: "Subscribes controller with <controller id> to user. <controller id> is the controller Mac Address"},            //User dependent
+  {key: "/myuser",                                description: "Sends user information to the chat"},                                                                           //User dependent
   {key: "/latest",                                description: "Sends latest registered data Sample for all the sensors of one MicroController"},
   {key: "/temperature",                           description: "Sends latest registred Temperature for all the Temperature sensors"},
   {key: "/humidity",                              description: "Sends latest registred Temperature for all the Humidty sensors"},
@@ -134,12 +180,28 @@ bot.on('/subscribe', (msg) => {
       return User.findOneAndUpdate({telegram: found_user.telegram}, {microcontrollers: found_user.microcontrollers});
     })
     .then( updated_user => {
+      _user = updated_user;
       bot.sendMessage(msg.from.id,`Microcontroller subscribed`, { replyToMessage: msg.message_id });
-      console.log('User was updated');
+      console.log('User was updated with controller');
+
+      return MicroController.findOne({mac_address: microcontroller_id});
+    })
+    .then( controller => {
+      controller.users.push(_user);
+
+      return MicroController.findOneAndUpdate({mac_address: microcontroller_id}, {users: controller.users});
+    })
+    .then( updated_controller => {
+      console.log('Microcontroller was updated with user.')
+
     })
     .catch( err => {
       console.log(err);
     })
+    
+  })
+  .catch( err => {
+    console.log(err);
   })
 })
 
@@ -357,3 +419,4 @@ bot.on('/history', (msg) => {
 })
 
 bot.start();
+
