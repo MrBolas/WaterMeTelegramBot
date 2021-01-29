@@ -333,16 +333,16 @@ bot.on('/notify', (msg) => {
         console.log(err);
       })
     }
-    else if (status == '') {
+    else if (status == undefined) {
       bot.sendMessage(msg.from.id,`Notifications are ${found_user.notifications ? "On" : " Off"}`, { replyToMessage: msg.message_id });
     }
-    else if (status == 'on') {
+    else if (status == "on") {
       User.findOne({telegram: found_user.telegram})
       .then(user => {
         user.notifications = true;
         user.save()
         .then( user => {
-          bot.sendMessage(msg.from.id,`Notifications are ${found_user.notifications ? "On" : " Off"}`, { replyToMessage: msg.message_id });
+          bot.sendMessage(msg.from.id,`Notifications are ${user.notifications ? "On" : " Off"}`, { replyToMessage: msg.message_id });
         })
       })
       .catch(err => {
