@@ -3,8 +3,9 @@ const TeleBot = require('telebot');
 const WaterMeSettings = require('@mrballs/watermesettings');
 const MicroController = WaterMeSettings.MicroController;
 const User = WaterMeSettings.User;
+const WaterMeEngine = WaterMeSettings.WaterMeEngine.WaterMeEngine;
 const cron = require('node-cron');
-const WaterMeEngine = require('@mrballs/watermesettings/WaterMeEngine/WaterMeEngine');
+//const WaterMeEngine = require('@mrballs/watermesettings/WaterMeEngine/WaterMeEngine');
 const environment_v = require('dotenv').config()
 const bot = new TeleBot(process.env.BOT_API_KEY);
 
@@ -40,11 +41,11 @@ function scheduled_evaluation() {
 
     for (const controller of all_controllers) {
       let waterme_engine = new WaterMeEngine(controller.sensors, controller.location);
-
-      controller.populate('User').execPopulate()
+      controller.populate('users').execPopulate()
       .then( populated_controller => {
         for (const user of populated_controller.users) {
-          if (waterme_engine.evaluateWaterMe()) {
+          if (waterme_engine.evaluateWaterMe()
+          && user.notifications) {
             let message = `Time to water the plants`;
             console.log(`Watering message sent to ${user.telegram.first_name} about ${populated_controller.mac_address}`);
             bot.sendMessage(user.telegram.user_id, message);
@@ -73,6 +74,9 @@ const commands = [
   {key: "/humidity",                              description: "Sends latest registred Temperature for all the Humidty sensors"},
   {key: "/SMS",                                   description: "Sends latest registred Temperature for all the Soil Moisture sensors"},
   {key: "/history <sensor> <number of readings>", description: "Sends the last <number_of_readings> readings sensor data history for <sensor>"},
+  {key: "/notify",                                description: "Sends a status report for notifications. Can also set notifications with /notify <status>. Being <status> on or off."},
+  {key: "/status",                                description: "Sends a status report for all sensors."},
+  {key: "/version",                               description: "Sends the Version of the WaterMe decision engine."}
 ];
 
 /* Requirements:
@@ -86,6 +90,21 @@ const commands = [
 bot.on('/test', (msg) => {
   console.log(msg);
     return msg.reply.text('Sanity test')
+})
+
+// Evaluates if plants should be watered
+bot.on('/evaluate', (msg) => {
+  scheduled_evaluation();
+})
+
+// Help command. Displays available commands
+bot.on('/help', (msg) => {
+  let reply_message = "Welcome to WaterMe Telegram Bot\n There are several commands available: \n";
+  for (const command of commands) {
+    reply_message += `${command.key} -> ${command.description}\n`
+  }
+
+  bot.sendMessage(msg.from.id, reply_message);
 })
 
 //display available commands and create account
@@ -105,7 +124,8 @@ bot.on('/start', (msg) => {
       user_id: msg.from.id,
       first_name: msg.from.first_name,
       last_name: msg.from.last_name
-    }
+    },
+    notifications: true
   })
   
   User.findOne({telegram: new_user.telegram})
@@ -151,7 +171,7 @@ bot.on('/subscribe', (msg) => {
 
     // controller does not exist
     if (controller == null) {
-      bot.sendMessage(msg.from.id,`Controller does not exist`, { replyToMessage: msg.message_id });
+      bot.sendMessage(msg.from.id,`Controller does not exist.`, { replyToMessage: msg.message_id });
       console.log("Code 4003.");
       return;
     }
@@ -161,7 +181,7 @@ bot.on('/subscribe', (msg) => {
 
       // user does not exist
       if (found_user == null) {
-        bot.sendMessage(msg.from.id,`User does not exist`, { replyToMessage: msg.message_id });
+        bot.sendMessage(msg.from.id,`User does not exist.`, { replyToMessage: msg.message_id });
         console.log("Code 4004.");
         return;
       }
@@ -171,7 +191,7 @@ bot.on('/subscribe', (msg) => {
       if (found_user.microcontrollers.some(controller => {
         return controller.mac_address == microcontroller_id;
       })) {
-        bot.sendMessage(msg.from.id,`Controller already subscribed`, { replyToMessage: msg.message_id });
+        bot.sendMessage(msg.from.id,`Controller already subscribed.`, { replyToMessage: msg.message_id });
         console.log("Code 4005.");
         throw "Controller already subscribed";
       }
@@ -181,8 +201,8 @@ bot.on('/subscribe', (msg) => {
     })
     .then( updated_user => {
       _user = updated_user;
-      bot.sendMessage(msg.from.id,`Microcontroller subscribed`, { replyToMessage: msg.message_id });
-      console.log('User was updated with controller');
+      bot.sendMessage(msg.from.id,`Microcontroller subscribed.`, { replyToMessage: msg.message_id });
+      console.log('User was updated with controller.');
 
       return MicroController.findOne({mac_address: microcontroller_id});
     })
@@ -230,7 +250,7 @@ bot.on('/myuser', (msg) => {
   })
   .then( found_user => {
   
-    let message = `User information:\nemail: ${found_user.email}\ntelegram_id:${found_user.telegram.user_id}\nFirst name: ${found_user.telegram.first_name}\nLast name: ${found_user.telegram.last_name}\n`
+    let message = `User information:\nemail: ${found_user.email}\ntelegram_id:${found_user.telegram.user_id}\nFirst name: ${found_user.telegram.first_name}\nLast name: ${found_user.telegram.last_name}\nNotifications: ${found_user.notifications ? "On" : " Off"}\n`
     
     if (found_user.microcontrollers.length > 0) {
       message += `Controllers:\n`;
@@ -238,12 +258,149 @@ bot.on('/myuser', (msg) => {
         message += `${controller.mac_address}\n`;
       }
     }
-    
     bot.sendMessage(msg.from.id, message);
-    
   })
   .catch(err => {
     console.log(err);
+  })
+})
+
+//returns microcontroller status
+bot.on("/status", (msg) => {
+
+  let _user = new User({
+    email: '-',
+    telegram:{
+      user_id: msg.from.id,
+      first_name: msg.from.first_name,
+      last_name: msg.from.last_name
+    }
+  })
+
+  User.findOne({telegram: _user.telegram})
+  .then(found_user => {
+    //User does not exist
+    if (found_user == null) {
+      bot.sendMessage(msg.from.id,`No User found`, { replyToMessage: msg.message_id });
+      console.log("Code 4007.");
+      return; 
+    }
+    return found_user.populate('microcontrollers').execPopulate();
+  })
+  .then( found_user => {
+    let status_message = `Controllers:\n`;
+    if (found_user.microcontrollers.length > 0) {
+      for (const controller of found_user.microcontrollers) {
+        let engine = new WaterMeEngine(controller.sensors, controller.location);
+        status_message += `${controller.mac_address}\n`;
+        status_message += `Sensor Availability:\nTemperature: ${engine.temperatureSensorAvailable() ? "On" : "Off"}\nHumidity:${engine.humiditySensorAvailable() ? "On" : "Off"}\nSoil Moisture: ${engine.soilMoistureSensorAvailable() ? "On" : "Off"}\nWeather API: ${engine.externalWeatherAPIAvailable() ? "On" : "Off"}\n`
+      }
+    }
+    bot.sendMessage(msg.from.id, status_message);
+  })
+  .catch(err => {
+    console.log(err);
+  })
+})
+
+//changes, toggle notifications
+bot.on('/notify', (msg) => {
+
+  let status = msg.text.split(' ')[1];
+  
+  let _user = new User({
+    email: '-',
+    telegram:{
+      user_id: msg.from.id,
+      first_name: msg.from.first_name,
+      last_name: msg.from.last_name
+    }
+  })
+
+  User.findOne({telegram: _user.telegram})
+  .then(found_user => {
+    if (found_user.notifications == undefined) {
+      console.log(found_user);
+      User.findOne({telegram: found_user.telegram})
+      .then(user => {
+        user.notifications = true;
+        user.save()
+        .then(user =>{
+          bot.sendMessage(msg.from.id,`Notifications are ${user.notifications ? "On" : " Off"}`, { replyToMessage: msg.message_id });
+        })
+      })
+      .catch(err => {
+        console.log(err);
+      })
+    }
+    else if (status == '') {
+      bot.sendMessage(msg.from.id,`Notifications are ${found_user.notifications ? "On" : " Off"}`, { replyToMessage: msg.message_id });
+    }
+    else if (status == 'on') {
+      User.findOne({telegram: found_user.telegram})
+      .then(user => {
+        user.notifications = true;
+        user.save()
+        .then( user => {
+          bot.sendMessage(msg.from.id,`Notifications are ${found_user.notifications ? "On" : " Off"}`, { replyToMessage: msg.message_id });
+        })
+      })
+      .catch(err => {
+        console.log(err);
+      })
+    }else{
+      User.findOne({telegram: found_user.telegram})
+      .then(user => {
+        user.notifications = false;
+        user.save()
+        .then(user => {
+          bot.sendMessage(msg.from.id,`Notifications are ${user.notifications ? "On" : " Off"}`, { replyToMessage: msg.message_id });
+        })
+      })
+      .catch(err => {
+        console.log(err);
+      })
+    }
+})
+
+})
+
+//returns available sensors
+bot.on('/sensors', (msg) => {
+
+  //User
+  const _user = new User({
+    email: '-',
+    telegram:{
+      user_id: msg.from.id,
+      first_name: msg.from.first_name,
+      last_name: msg.from.last_name
+    }
+  })
+
+  User.findOne({telegram: _user.telegram})
+  .then(found_user => {
+    //User does not exist
+    if (found_user == null) {
+      bot.sendMessage(msg.from.id,`No User found`, { replyToMessage: msg.message_id });
+      console.log("Code 4007.");
+      return; 
+    }
+    return found_user.populate('microcontrollers').execPopulate();
+  })
+  .then( found_user => {
+    if (found_user.microcontrollers.length>0) {
+      for (const microcontroller of found_user.microcontrollers) {
+        let microcontroller_id = `${microcontroller.mac_address}\n`;
+        let Engine = new WaterMeEngine(microcontroller.sensors, microcontroller.location);
+        console.log("pass")
+          console.log(Engine)
+          let reply_message = 
+          `Sensor Availability:\nTemperature: ${Engine.temperatureSensorAvailable() ? "Yes" : "No"}\nHumidity: ${Engine.humiditySensorAvailable() ? "Yes" : "No"}\nSoil Moisture: ${Engine.soilMoistureSensorAvailable() ? "Yes" : "No"}`
+          
+          bot.sendMessage(msg.from.id,microcontroller_id+reply_message, { replyToMessage: msg.message_id });
+        }
+      }
   })
 
 })
@@ -284,26 +441,28 @@ bot.on('/latest', (msg) => {
 bot.on('/temperature', (msg) => {
   MicroController.findOne()
   .then(controller => {
-      if (controller == null) {
-        bot.sendMessage(msg.from.id,`Something went wrong.`, { replyToMessage: msg.message_id });
-        console.log("Code 4001.");
-        return;
+    if (controller == null) {
+      bot.sendMessage(msg.from.id,`Something went wrong.`, { replyToMessage: msg.message_id });
+      console.log("Code 4001.");
+      return;
+    }
+    
+    if (controller.sensors == null) {
+      bot.sendMessage(msg.from.id,`Something went wrong.`, { replyToMessage: msg.message_id });
+      console.log("Code 4002.");
+      return;
+    }
+    
+    for (const sensor of controller.sensors) {
+      if (sensor.type.includes('temp'))
+      {
+        let reading_time = Date(sensor.readings[sensor.readings.length-1].time);
+        let reading_value = sensor.readings[sensor.readings.length-1].value
+        let message =
+        `${reading_time} : ${sensor.type} -> ${reading_value}\nWatering Interval is set between:\nmax: ${sensor.watering_threshold.max} \nmin: ${sensor.watering_threshold.min}`
+        bot.sendMessage(msg.from.id, message, { replyToMessage: msg.message_id });
       }
-      
-      if (controller.sensors == null) {
-        bot.sendMessage(msg.from.id,`Something went wrong.`, { replyToMessage: msg.message_id });
-        console.log("Code 4002.");
-        return;
-      }
-      
-      for (const sensor of controller.sensors) {
-          if (sensor.type.includes('temp'))
-          {
-              let reading_time = Date(sensor.readings[sensor.readings.length-1].time);
-              let reading_value = sensor.readings[sensor.readings.length-1].value
-              bot.sendMessage(msg.from.id,`${reading_time} : ${sensor.type} -> ${reading_value}\nBetween max: ${sensor.watering_threshold.max} and min: ${sensor.watering_threshold.min}`, { replyToMessage: msg.message_id });
-          }
-      }
+    }
   })
   .catch(err => {
       console.log(err);
@@ -416,6 +575,12 @@ bot.on('/history', (msg) => {
   .catch(err => {
       console.log(err);
   })
+})
+
+// Sends WaterMe bot version
+bot.on('/version', (msg) =>{
+  let engine = new WaterMeEngine([],'-');
+  bot.sendMessage(msg.from.id,`WaterMeEngine Version: ${engine.getVersion()}`, { replyToMessage: msg.message_id });
 })
 
 bot.start();
